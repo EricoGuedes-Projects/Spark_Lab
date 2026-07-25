@@ -1,9 +1,17 @@
+import os
+import sys
+
+# Define explicitamente o executável Python do venv ativo para o PySpark
+os.environ["PYSPARK_PYTHON"] = sys.executable
+os.environ["PYSPARK_DRIVER_PYTHON"] = sys.executable
+
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import *
 from pyspark.sql.window import Window
 from pyspark.sql.types import StringType
 from pyspark.sql.functions import broadcast, udf
 from pyspark import StorageLevel
+from pyspark.sql.types import IntegerType, StringType, StructField, StructType
 
 # ==========================================================
 # SPARK SESSION
@@ -12,6 +20,12 @@ from pyspark import StorageLevel
 spark = (
     SparkSession.builder
     .appName("PySpark Complete Laboratory")
+    .master("local[*]")
+    # Garante a resolução correta da interface de rede no Windows
+    .config("spark.driver.host", "127.0.0.1")
+    .config("spark.driver.bindAddress", "127.0.0.1")
+    # Mantém o worker do Python ativo entre tarefas
+    .config("spark.python.worker.reuse", "true")
     .getOrCreate()
 )
 
@@ -222,15 +236,13 @@ GROUP BY category
 
 print("\nJOINS")
 
-users = spark.createDataFrame(
-    [
-        (1, "Joao"),
-        (2, "Maria"),
-        (3, "Pedro"),
-        (4, "Ana")
-    ],
-    ["user_id", "name"]
-)
+# Criando o DataFrame diretamente via Spark SQL (executado 100% na JVM)
+users = spark.sql("""
+    SELECT 1 AS user_id, 'Joao' AS name UNION ALL
+    SELECT 2 AS user_id, 'Maria' AS name UNION ALL
+    SELECT 3 AS user_id, 'Pedro' AS name UNION ALL
+    SELECT 4 AS user_id, 'Ana' AS name
+""")
 
 inner_join = (
     df.join(
@@ -337,33 +349,15 @@ window_running = (
 )
 
 # ==========================================================
-# UDF
+# UDF 
 # ==========================================================
 
-print("\nUDF")
+print("\nUDF NATIVA")
 
-def classify(amount):
-
-    if amount > 3000:
-        return "HIGH"
-
-    elif amount > 1000:
-        return "MEDIUM"
-
-    return "LOW"
-
-risk_udf = udf(
-    classify,
-    StringType()
-)
-
-(
-    df.withColumn(
-        "risk_udf",
-        risk_udf("amount")
-    )
-    .show()
-)
+df.withColumn(
+    "risk_level",
+    when(col("amount") > 3000, "HIGH").otherwise("NORMAL")
+).show()
 
 # ==========================================================
 # CACHE
@@ -464,17 +458,6 @@ print("\nSAMPLE")
 print("\nLIMIT")
 
 df.limit(5).show()
-
-# ==========================================================
-# COLLECT
-# ==========================================================
-
-print("\nCOLLECT")
-
-rows = df.limit(3).collect()
-
-for row in rows:
-    print(row)
 
 # ==========================================================
 # CLEANUP
